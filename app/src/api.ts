@@ -64,9 +64,13 @@ export type CreditPackage = {
   badge?: string;
 };
 
+// Bir videonun ses seçenekleri: sahne müziği (varsayılan), müziksiz, kullanıcının kendi sesi.
+export type VideoVersions = { scene: string; silent: string | null; custom: string | null };
+
 export type JobStatus = {
   status: 'queued' | 'processing' | 'done' | 'failed';
   videoUrl?: string;
+  versions?: VideoVersions;
   error?: string;
   user: User;
 };
@@ -173,7 +177,9 @@ async function saveToken(value: string | null) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  // Dosya yüklemede (FormData) içerik türünü fetch kendisi belirler.
+  const headers: Record<string, string> =
+    init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let res: Response;
@@ -233,6 +239,16 @@ export const api = {
     post<{ jobId: string; user: User }>('/api/jobs', { styleId, imageBase64, mimeType }),
   job: (jobId: string) => request<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}`),
   jobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
+  // Kullanıcının seçtiği videonun sesi ayrılıp üretilen videoya eklenir.
+  uploadCustomAudio: (jobId: string, media: { uri: string; name: string; type: string }) => {
+    const form = new FormData();
+    // React Native dosyayı { uri, name, type } nesnesiyle yükler.
+    form.append('media', media as unknown as Blob);
+    return request<{ url: string }>(`/api/jobs/${encodeURIComponent(jobId)}/custom-audio`, {
+      method: 'POST',
+      body: form,
+    });
+  },
 
   admin: {
     stats: () => request<AdminStats>('/api/admin/stats'),

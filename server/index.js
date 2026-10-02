@@ -1,13 +1,15 @@
 import "dotenv/config";
 import express from "express";
-import { readFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as db from "./db.js";
 import { CATEGORIES, STYLES, publicStyle } from "./styles.js";
 import { CREDIT_PACKAGES, FREE_REFERENCE_SECONDS, FREE_VIDEOS, PREMIUM, VIDEO_SECONDS } from "./packages.js";
-import { processVideo } from "./media.js";
+import os from "node:os";
+import multer from "multer";
+import { applyCustomAudio, ensureBase, NoAudioError, processVideo, versionPaths } from "./media.js";
 import { mockProvider } from "./providers/mock.js";
 import { higgsfieldProvider, MODELS as HF_MODELS } from "./providers/higgsfield.js";
 
@@ -309,21 +311,43 @@ app.get("/api/jobs", requireUser, (req, res) => {
 });
 
 // İşin güncel durumu. Bitmemişse sağlayıcıya sorup veritabanını günceller.
+// Bitmemiş bir işin durumunu sağlayıcıya sorar, veritabanını günceller; bitince son işlemeyi başlatır.
+async function refreshJob(job) {
+  if (!job.provider_job_id) return; // gönderim henüz sürüyor
+  const result = await PROVIDERS[job.provider].check(job.provider_job_id);
+  if (result.status === "processing") db.markProcessing(job.id);
+  if (result.status === "done") {
+    db.markProcessing(job.id);
+    startPostProcess(job, result.videoUrl);
+  }
+  if (result.status === "failed") db.markFailedAndRefund(job.id, result.error ?? "Video üretilemedi.");
+}
+
+// Kullanıcı çekim ekranını kapatsa da işler ilerlesin: bekleyen işler arka planda takip edilir.
+const BACKGROUND_REFRESH_MS = 15_000;
+let backgroundBusy = false;
+setInterval(async () => {
+  if (backgroundBusy) return;
+  backgroundBusy = true;
+  try {
+    for (const job of db.listPendingJobs()) {
+      await refreshJob(job).catch((err) => console.error("Arka plan durum hatası:", err.message));
+    }
+    for (const { id } of db.listStuckJobs(15)) {
+      db.markFailedAndRefund(id, "Video üretimi başlatılamadı.");
+    }
+  } finally {
+    backgroundBusy = false;
+  }
+}, BACKGROUND_REFRESH_MS).unref();
+
 app.get("/api/jobs/:jobId", requireUser, async (req, res) => {
   let job = db.getJob(req.params.jobId, req.user.id);
   if (!job) return res.status(404).json({ error: "İş bulunamadı." });
 
   if (job.status === "queued" || job.status === "processing") {
     try {
-      const result = await PROVIDERS[job.provider].check(job.provider_job_id);
-      if (result.status === "processing") db.markProcessing(job.id);
-      if (result.status === "done") {
-        db.markProcessing(job.id);
-        startPostProcess(job, result.videoUrl);
-      }
-      if (result.status === "failed") {
-        db.markFailedAndRefund(job.id, result.error ?? "Video üretilemedi.");
-      }
+      await refreshJob(job);
       job = db.getJob(job.id, req.user.id);
     } catch (err) {
       // Geçici hata: iş durumunu değiştirme, uygulama tekrar soracak.
@@ -331,12 +355,43 @@ app.get("/api/jobs/:jobId", requireUser, async (req, res) => {
     }
   }
 
+  // Bu özellikten önceki videolarda müziksiz sürüm yoksa oluşturulur (hızlı, görüntü kopyalanır).
+  if (job.status === "done") await ensureBase(job.id).catch((err) => logError(`ensureBase ${job.id}`, err));
+  const versions = job.status === "done" ? versionPaths(job.id) : null;
+
   res.json({
     status: job.status,
     videoUrl: absoluteUrl(req, job.video_url) ?? undefined,
+    versions: versions
+      ? Object.fromEntries(Object.entries(versions).map(([k, v]) => [k, v && absoluteUrl(req, v)]))
+      : undefined,
     error: job.status === "failed" ? `${job.error} Hakkın iade edildi.` : undefined,
     user: toPublicUser(db.getUser(req.user.id)),
   });
+});
+
+// Kullanıcının kendi videosundan ses: yüklenen videonun sesi ayrılıp üretilen videoya eklenir.
+// Görüntü kullanılmaz, yüklenen dosya işlemden sonra silinir.
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
+});
+
+app.post("/api/jobs/:jobId/custom-audio", requireUser, upload.single("media"), async (req, res) => {
+  const job = db.getJob(req.params.jobId, req.user.id);
+  if (!job || job.status !== "done") {
+    if (req.file) await unlink(req.file.path).catch(() => {});
+    return res.status(404).json({ error: "Video bulunamadı." });
+  }
+  if (!req.file) return res.status(400).json({ error: "Ses alınacak video seçilmedi." });
+  try {
+    const url = await applyCustomAudio({ jobId: job.id, uploadPath: req.file.path });
+    res.json({ url: absoluteUrl(req, url) });
+  } catch (err) {
+    if (err instanceof NoAudioError) return res.status(400).json({ error: err.message });
+    logError(`custom-audio ${job.id}`, err);
+    res.status(500).json({ error: "Ses eklenemedi, başka bir video dene." });
+  }
 });
 
 // ------------------------------------------------------------------ Yönetim (sadece admin)
@@ -365,6 +420,7 @@ app.get("/api/admin/jobs", requireAdmin, (_req, res) => {
 
 // Uç noktalarda yakalanmayan hatalar: kaydet, kullanıcıya genel bir mesaj dön.
 app.use((err, req, res, _next) => {
+  if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Video çok büyük (en fazla 200 MB)." });
   logError(`${req.method} ${req.path}`, err);
   console.error(err);
   res.status(500).json({ error: "Beklenmedik bir hata oluştu." });

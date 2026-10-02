@@ -27,7 +27,7 @@ type Photo = { uri: string; base64: string; mimeType: string };
 type Phase =
   | { name: 'pick' }
   | { name: 'generating'; jobId: string; startedAt: number }
-  | { name: 'done'; videoUrl: string };
+  | { name: 'done'; videoUrl: string; jobId: string };
 
 type Props = {
   style: Style | null;
@@ -175,7 +175,7 @@ export function StyleDetail({ style, user, onClose, onUserChange, onNeedCredits 
             onUserChange={onUserChange}
             onDone={(videoUrl) => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setPhase({ name: 'done', videoUrl });
+              setPhase({ name: 'done', videoUrl, jobId: phase.jobId });
             }}
             onFail={(message) => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -189,7 +189,12 @@ export function StyleDetail({ style, user, onClose, onUserChange, onNeedCredits 
           <View style={styles.resultWrap}>
             <Text style={styles.premiere}>🎉 Prömiyer zamanı!</Text>
             <Text style={styles.premiereSub}>{style.name} sahnen hazır.</Text>
-            <ResultVideo videoUrl={phase.videoUrl} onReset={onClose} resetLabel="Başka sahne dene" />
+            <ResultVideo
+              videoUrl={phase.videoUrl}
+              jobId={phase.jobId}
+              onReset={onClose}
+              resetLabel="Başka sahne dene"
+            />
           </View>
         )}
 

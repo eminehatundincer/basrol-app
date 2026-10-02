@@ -315,6 +315,23 @@ export function listJobs(userId) {
     .all(userId);
 }
 
+// Arka planda takip edilecek işler (uygulama açık olmasa da ilerlesin diye).
+export function listPendingJobs() {
+  return db
+    .prepare("SELECT * FROM jobs WHERE status IN ('queued', 'processing') AND provider_job_id IS NOT NULL")
+    .all();
+}
+
+// Sağlayıcıya hiç ulaşamamış (ör. gönderim sırasında sunucu kapanmış) eski işler.
+export function listStuckJobs(minutes) {
+  return db
+    .prepare(
+      `SELECT id FROM jobs WHERE status = 'queued' AND provider_job_id IS NULL
+       AND created_at <= datetime('now', ?)`,
+    )
+    .all(`-${minutes} minutes`);
+}
+
 export function setProviderJobId(jobId, providerJobId) {
   db.prepare("UPDATE jobs SET provider_job_id = ?, updated_at = datetime('now') WHERE id = ?").run(
     providerJobId,

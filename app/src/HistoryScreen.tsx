@@ -25,7 +25,7 @@ export function HistoryScreen({
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [playing, setPlaying] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<{ url: string; jobId: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,7 +81,7 @@ export function HistoryScreen({
             <Pressable
               style={({ pressed }) => [styles.card, pressed && playable && { opacity: 0.8 }]}
               disabled={!playable}
-              onPress={() => setPlaying(item.video_url)}
+              onPress={() => item.video_url && setPlaying({ url: item.video_url, jobId: item.id })}
             >
               <Image
                 source={assetUrl(style?.cover)}
@@ -117,7 +117,14 @@ export function HistoryScreen({
         statusBarTranslucent
       >
         <View style={styles.player}>
-          {playing && <ResultVideo videoUrl={playing} onReset={() => setPlaying(null)} resetLabel="Kapat" />}
+          {playing && (
+            <ResultVideo
+              videoUrl={playing.url}
+              jobId={playing.jobId}
+              onReset={() => setPlaying(null)}
+              resetLabel="Kapat"
+            />
+          )}
         </View>
       </Modal>
     </View>
