@@ -1,0 +1,25 @@
+# Bağımlılıklar ve geçici dosyalar
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store
+
+# Gizli bilgiler — ASLA depoya girmez
+.env
+.env.*
+!.env.example
+
+# Kullanıcı verisi: veritabanı, üretilen videolar, hata kayıtları
+server/data.sqlite*
+server/public/videos/
+server/logs/
+
+# Müzik dosyaları: Pixabay lisansı ham dosyaların dağıtılmasına izin vermez.
+# Liste ve kaynaklar: server/music/LISANS.md
+server/music/*.mp3
+muzik-onizleme.mp3
+
+# Yerel araç ayarları
+.claude/
