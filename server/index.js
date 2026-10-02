@@ -306,7 +306,11 @@ app.post("/api/jobs", requireUser, async (req, res) => {
 
 app.get("/api/jobs", requireUser, (req, res) => {
   res.json({
-    jobs: db.listJobs(req.user.id).map((j) => ({ ...j, video_url: absoluteUrl(req, j.video_url) })),
+    jobs: db.listJobs(req.user.id).map((j) => ({
+      ...j,
+      video_url: absoluteUrl(req, j.video_url),
+      error: j.error?.replace(/s*[[sS]*]$/, "") ?? null,
+    })),
   });
 });
 
@@ -320,7 +324,11 @@ async function refreshJob(job) {
     db.markProcessing(job.id);
     startPostProcess(job, result.videoUrl);
   }
-  if (result.status === "failed") db.markFailedAndRefund(job.id, result.error ?? "Video üretilemedi.");
+  if (result.status === "failed") {
+    const base = result.error ?? "Video üretilemedi.";
+    if (result.detail) logError(`üretim hatası ${job.id}`, result.detail);
+    db.markFailedAndRefund(job.id, result.detail ? `${base} [${result.detail}]` : base);
+  }
 }
 
 // Kullanıcı çekim ekranını kapatsa da işler ilerlesin: bekleyen işler arka planda takip edilir.
@@ -365,7 +373,8 @@ app.get("/api/jobs/:jobId", requireUser, async (req, res) => {
     versions: versions
       ? Object.fromEntries(Object.entries(versions).map(([k, v]) => [k, v && absoluteUrl(req, v)]))
       : undefined,
-    error: job.status === "failed" ? `${job.error} Hakkın iade edildi.` : undefined,
+    // Köşeli parantezdeki teknik ayrıntı yalnızca Yönetim ekranı içindir.
+    error: job.status === "failed" ? `${job.error.replace(/s*[[sS]*]$/, "")} Hakkın iade edildi.` : undefined,
     user: toPublicUser(db.getUser(req.user.id)),
   });
 });
@@ -377,18 +386,33 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024, files: 1 },
 });
 
+// Teşhis için her deneme kaydedilir (dosya adı/boyutu/türü; içerik değil).
+const logAttempt = (req, outcome) =>
+  logError(
+    "custom-audio deneme",
+    `${outcome} | iş=${req.params.jobId} | dosya=${req.file ? `${req.file.originalname} ${req.file.mimetype} ${req.file.size} bayt` : "YOK"} | içerik-türü=${req.get("content-type")?.slice(0, 40)}`,
+  );
+
 app.post("/api/jobs/:jobId/custom-audio", requireUser, upload.single("media"), async (req, res) => {
   const job = db.getJob(req.params.jobId, req.user.id);
   if (!job || job.status !== "done") {
+    logAttempt(req, `404 iş yok/bitmemiş (durum=${job?.status})`);
     if (req.file) await unlink(req.file.path).catch(() => {});
     return res.status(404).json({ error: "Video bulunamadı." });
   }
-  if (!req.file) return res.status(400).json({ error: "Ses alınacak video seçilmedi." });
+  if (!req.file) {
+    logAttempt(req, "400 dosya gelmedi");
+    return res.status(400).json({ error: "Ses alınacak video seçilmedi." });
+  }
+  logAttempt(req, "alındı");
   try {
     const url = await applyCustomAudio({ jobId: job.id, uploadPath: req.file.path });
     res.json({ url: absoluteUrl(req, url) });
   } catch (err) {
-    if (err instanceof NoAudioError) return res.status(400).json({ error: err.message });
+    if (err instanceof NoAudioError) {
+      logAttempt(req, "400 videoda ses yok");
+      return res.status(400).json({ error: err.message });
+    }
     logError(`custom-audio ${job.id}`, err);
     res.status(500).json({ error: "Ses eklenemedi, başka bir video dene." });
   }
@@ -420,7 +444,10 @@ app.get("/api/admin/jobs", requireAdmin, (_req, res) => {
 
 // Uç noktalarda yakalanmayan hatalar: kaydet, kullanıcıya genel bir mesaj dön.
 app.use((err, req, res, _next) => {
-  if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Video çok büyük (en fazla 200 MB)." });
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    logError(`${req.method} ${req.path}`, "413 yüklenen dosya 200 MB sınırını aştı");
+    return res.status(413).json({ error: "Video çok büyük (en fazla 200 MB)." });
+  }
   logError(`${req.method} ${req.path}`, err);
   console.error(err);
   res.status(500).json({ error: "Beklenmedik bir hata oluştu." });

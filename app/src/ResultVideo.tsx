@@ -6,7 +6,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { api, VideoVersions } from './api';
+import { api, ApiError, VideoVersions } from './api';
 import { GoldButton } from './components';
 import { colors, radius } from './theme';
 
@@ -62,7 +62,12 @@ export function ResultVideo({
 
   async function pickOwnAudio() {
     if (!jobId) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 1 });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      // Bize sadece ses lazım: iPhone videoyu düşük çözünürlükte yeniden kaydeder (ses korunur),
+      // yüzlerce MB'lık 4K video birkaç MB'a iner ve hızlı yüklenir.
+      videoExportPreset: ImagePicker.VideoExportPreset.LowQuality,
+    });
     const asset = result.assets?.[0];
     if (result.canceled || !asset) return;
     if (asset.fileSize && asset.fileSize > MAX_UPLOAD_BYTES) {
@@ -70,17 +75,19 @@ export function ResultVideo({
     }
     setUploading(true);
     try {
-      const { url } = await api.uploadCustomAudio(jobId, {
-        uri: asset.uri,
-        name: asset.fileName ?? 'ses.mp4',
-        type: asset.mimeType ?? 'video/mp4',
-      });
+      const { url } = await api.uploadCustomAudio(jobId, asset.uri);
       // Aynı dosya adı yeniden yazıldığı için önbelleği aşmak üzere adres değiştirilir.
       setVersions((v) => (v ? { ...v, custom: `${url}?v=${Date.now()}` } : v));
       setMode('custom');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      Alert.alert('Ses eklenemedi', err instanceof Error ? err.message : String(err));
+      const message =
+        err instanceof ApiError && err.code === 'network'
+          ? 'Video yüklenemedi. Bağlantını kontrol et ya da daha kısa bir video dene.'
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      Alert.alert('Ses eklenemedi', message);
     } finally {
       setUploading(false);
     }

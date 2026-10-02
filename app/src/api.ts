@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { File } from 'expo-file-system';
 
 export type User = {
   id: string;
@@ -240,10 +241,11 @@ export const api = {
   job: (jobId: string) => request<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}`),
   jobs: () => request<{ jobs: JobSummary[] }>('/api/jobs'),
   // Kullanıcının seçtiği videonun sesi ayrılıp üretilen videoya eklenir.
-  uploadCustomAudio: (jobId: string, media: { uri: string; name: string; type: string }) => {
+  uploadCustomAudio: (jobId: string, uri: string) => {
     const form = new FormData();
-    // React Native dosyayı { uri, name, type } nesnesiyle yükler.
-    form.append('media', media as unknown as Blob);
+    // Expo SDK 57'de istekleri expo/fetch gönderir ve eski { uri, name, type } eki desteklenmez
+    // (istek hiç çıkmaz). expo-file-system File nesnesi Blob gibi davranır; adı ve türü dosyadan gelir.
+    form.append('media', new File(uri) as unknown as Blob);
     return request<{ url: string }>(`/api/jobs/${encodeURIComponent(jobId)}/custom-audio`, {
       method: 'POST',
       body: form,

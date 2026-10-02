@@ -193,8 +193,8 @@ export const higgsfieldProvider = {
       case "canceled":
         return { status: "failed", error: "Çekim iptal edildi." };
       default:
-        console.error("Higgsfield üretim hatası:", r.status, r.error);
-        return { status: "failed", error: "Video üretilemedi." };
+        // detail yalnızca kayıt ve Yönetim ekranı içindir; kullanıcıya sade mesaj gösterilir.
+        return { status: "failed", error: "Video üretilemedi.", detail: String(r.error ?? r.status).slice(0, 200) };
     }
   },
 };
