@@ -161,11 +161,12 @@ export const STYLES = [
     music: "pop.mp3",
     references: ["stage-1.jpg"],
     prompt:
-      "Pop idol girl-group stage performance inspired by K-pop, with a modern Turkish twist. The person " +
-      "is the center member on a huge concert stage, wearing a coordinated stylish stage outfit with " +
-      "bold accessories and subtle Anatolian embroidery details, a headset microphone, performing " +
-      "sharp synchronized choreography with backup dancers in matching outfits. Colorful LED screens, " +
-      "laser lights, confetti falling, energetic camera sweeps and a final close-up wink to the camera." +
+      "Pop idol stage performance inspired by K-pop, with a modern Turkish twist. The person is the lead " +
+      "singer standing center stage in a medium shot, wearing a stylish stage outfit that keeps their own " +
+      "look (glasses, hair or head covering stay the same) with subtle Anatolian embroidery details and a " +
+      "headset microphone. They sing and move with confident, simple dance gestures while backup dancers " +
+      "perform far behind them, small and out of focus. Colorful LED screens, laser lights, confetti " +
+      "falling; the camera slowly pushes in and ends on a close-up of their face as they wink at the camera." +
       IDENTITY,
   },
   {

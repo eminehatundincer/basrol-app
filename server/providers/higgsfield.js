@@ -18,16 +18,27 @@ const BASE_URL = "https://api.higgsfield.ai";
 const DEFAULT_NEGATIVE =
   "blur, distortion, warped face, deformed hands, extra limbs, low quality, text, watermark";
 
-// Referans modellerinde kimliği koruma talimatı promptun başına eklenir.
+// Referans modellerinde kimliği koruma talimatı promptun başına, çekim kuralları sonuna eklenir.
+// Kling (O3/Omni) referans görsellere promptta <<<image_1>>>, <<<image_2>>> … diye atıf yapılmasını bekler;
+// "@Image1" Seedance'e özgüdür ve Kling'de kişi referansı tutmaz (yüz başka birine dönüşür).
+const IDENTITY_SHOT_RULES =
+  " Shot rules for identity: the main character is the only person in sharp focus; their face stays " +
+  "clearly visible, well lit and mostly facing the camera in a medium or close-up shot. Any other people " +
+  "stay in the blurred background and never look like the main character. Use smooth, gentle camera " +
+  "movement; no fast spins, whip pans or face-hiding motion.";
+
 function referencePrompt(style, refCount) {
   const extra =
     refCount > 1
-      ? ` Use the other reference images only for the scene's style, setting, costume and mood, never for the person's face.`
+      ? ` Use the other reference images (<<<image_2>>> and after) only for the scene's setting, costume ` +
+        `and mood, never for the person's face.`
       : "";
   return (
-    `The main character is the person shown in @Image1. Keep their face, facial features, skin tone ` +
-    `and identity exactly the same as in @Image1; they must be clearly recognizable.${extra} ` +
-    style.prompt
+    `The main character is exactly the person in <<<image_1>>>: same face, facial features, skin tone, ` +
+    `age, gender presentation, glasses, hair or head covering. They must be instantly recognizable as the ` +
+    `person in <<<image_1>>> throughout the whole video.${extra} ` +
+    style.prompt +
+    IDENTITY_SHOT_RULES
   );
 }
 
